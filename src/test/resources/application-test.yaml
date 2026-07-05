@@ -1,0 +1,30 @@
+# 测试环境配置：连真实 MySQL/MinIO（本机无 Docker，不用 Testcontainers）
+spring:
+  application:
+    name: lucky-forge-test
+  datasource:
+    url: jdbc:mysql://192.168.2.137:3306/lucky_forge?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+mybatis-plus:
+  global-config:
+    db-config:
+      logic-delete-field: deletedAt
+      logic-delete-value: "now()"
+      logic-not-delete-value: "null"
+      id-type: AUTO
+
+chatgpt2api:
+  base-url: http://192.168.2.137:8080
+  api-key: test
+  chat-timeout-seconds: 5
+  image-timeout-seconds: 5
+  max-retries: 3
+
+minio:
+  endpoint: http://192.168.2.137:9000
+  access-key: root
+  secret-key: root123456
+  bucket: lucky-forge

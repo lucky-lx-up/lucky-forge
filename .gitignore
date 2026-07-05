@@ -55,3 +55,5 @@ application-prod.yml
 
 ### 项目运行时数据（生成图 / 素材包，体积大且非源码）###
 workspace/
+/.codex/
+/openspec/
