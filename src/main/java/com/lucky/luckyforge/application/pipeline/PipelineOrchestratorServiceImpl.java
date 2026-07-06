@@ -45,6 +45,9 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
 
     private static final Logger log = LoggerFactory.getLogger(PipelineOrchestratorServiceImpl.class);
 
+    /** run 在 RUNNING 状态超过此分钟数，视为异常中断（如后端重启杀线程），允许重跑 */
+    private static final int RUN_TIMEOUT_MINUTES = 10;
+
     @Autowired private StyleAnalysisService styleAnalysisService;
     @Autowired private PromptBuilderService promptBuilderService;
     @Autowired private ImageGeneratorService imageGeneratorService;
@@ -186,7 +189,18 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
         // 检查是否已有 pipeline 在跑（查该 batch 最新的 run 是否 RUNNING）
         Run latestRun = findLatestRun(batchId);
         if (latestRun != null && "RUNNING".equals(latestRun.getStatus())) {
-            throw new BizException("该批次已有流水线在执行中，请等待完成");
+            if (isRunTimedOut(latestRun)) {
+                // 超时（如后端重启杀线程），标记 FAILED，允许重跑
+                log.warn("run {} 在 RUNNING 状态超时（>{}分钟），标记为 FAILED 允许重跑",
+                        latestRun.getId(), RUN_TIMEOUT_MINUTES);
+                latestRun.setStatus("FAILED");
+                latestRun.setFinishedAt(LocalDateTime.now());
+                latestRun.setError("执行超时（>" + RUN_TIMEOUT_MINUTES + "分钟未完成），疑似中断");
+                runMapper.updateById(latestRun);
+            } else {
+                throw new BizException("该批次已有流水线在执行中，请等待完成（或 " + RUN_TIMEOUT_MINUTES
+                        + " 分钟后自动超时可重跑）");
+            }
         }
 
         // 虚拟线程后台执行（进度通过 lf_run 表的 currentStep/status 追踪，重启不丢）
@@ -225,6 +239,16 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
                 .eq(Run::getBatchId, batchId)
                 .orderByDesc(Run::getId)
                 .last("LIMIT 1"));
+    }
+
+    /** 判断 run 是否超时（startedAt 至今超过 RUN_TIMEOUT_MINUTES 分钟） */
+    private boolean isRunTimedOut(Run run) {
+        if (run.getStartedAt() == null) {
+            // 没有 startedAt（理论上不会，PromptBuilder 创建时设了），用 createdAt 兜底
+            if (run.getCreatedAt() == null) return true;
+            return run.getCreatedAt().isBefore(LocalDateTime.now().minusMinutes(RUN_TIMEOUT_MINUTES));
+        }
+        return run.getStartedAt().isBefore(LocalDateTime.now().minusMinutes(RUN_TIMEOUT_MINUTES));
     }
 
     /** 定 run 终态 */
