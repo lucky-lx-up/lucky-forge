@@ -2,7 +2,7 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 300000 // 5 分钟（pipeline 同步执行耗时长）
+  timeout: 30000 // 普通请求 30 秒
 })
 
 // 统一响应处理：ApiResponse { result, message, data }
@@ -47,6 +47,9 @@ export const uploadReferenceImages = (batchId, files) => {
 
 export const runPipeline = (batchId) =>
   api.post(`/batches/${batchId}/pipeline`)
+
+export const getPipelineStatus = (batchId) =>
+  api.get(`/batches/${batchId}/pipeline/status`)
 
 export const listReferenceImages = (batchId) =>
   api.get(`/batches/${batchId}/reference-images`)

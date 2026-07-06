@@ -9,6 +9,7 @@ import com.lucky.luckyforge.application.packageassembler.PackageAssemblerService
 import com.lucky.luckyforge.application.packageassembler.dto.PackageAssemblyResponse;
 import com.lucky.luckyforge.application.pipeline.dto.PipelineResult;
 import com.lucky.luckyforge.application.pipeline.dto.PipelineStepResult;
+import com.lucky.luckyforge.application.pipeline.dto.PipelineStatusResponse;
 import com.lucky.luckyforge.application.promptbuilder.PromptBuilderService;
 import com.lucky.luckyforge.application.promptbuilder.dto.PromptGenerationResponse;
 import com.lucky.luckyforge.application.styleanalysis.StyleAnalysisService;
@@ -28,6 +29,8 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 
 /**
  * 流水线编排服务实现。
@@ -42,6 +45,9 @@ import java.util.List;
 public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorService {
 
     private static final Logger log = LoggerFactory.getLogger(PipelineOrchestratorServiceImpl.class);
+
+    /** 异步 pipeline 进度追踪：batchId → 当前状态（内存存储，单机首版够用） */
+    private final ConcurrentHashMap<Long, PipelineStatusResponse> asyncStatus = new ConcurrentHashMap<>();
 
     @Autowired private StyleAnalysisService styleAnalysisService;
     @Autowired private PromptBuilderService promptBuilderService;
@@ -164,6 +170,64 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
         if (result instanceof PackageAssemblyResponse p)
             return "packageId=" + p.packageId() + ", images=" + p.images().size();
         return result.toString();
+    }
+
+    @Override
+    public Long executeAsync(Long batchId) {
+        // 校验（与 execute 同步前置检查）
+        if (batchId == null || batchId <= 0) {
+            throw new BizException("batchId 非法");
+        }
+        if (batchMapper.selectById(batchId) == null) {
+            throw new BizException("批次不存在: " + batchId);
+        }
+        long refCount = referenceImageMapper.selectCount(
+                new LambdaQueryWrapper<ReferenceImage>().eq(ReferenceImage::getBatchId, batchId));
+        if (refCount == 0) {
+            throw new BizException("批次无参考图: " + batchId);
+        }
+
+        // 检查是否已有 pipeline 在跑
+        PipelineStatusResponse existing = asyncStatus.get(batchId);
+        if (existing != null && "RUNNING".equals(existing.status())) {
+            throw new BizException("该批次已有流水线在执行中，请等待完成");
+        }
+
+        // 立即存 RUNNING 状态（前端马上能轮询到）
+        asyncStatus.put(batchId, new PipelineStatusResponse(
+                null, "RUNNING", "STYLE", "流水线启动中...", null, List.of()));
+
+        // 虚拟线程后台执行
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            executor.submit(() -> {
+                try {
+                    PipelineResult result = execute(batchId);
+                    asyncStatus.put(batchId, new PipelineStatusResponse(
+                            result.runId(),
+                            result.overallSuccess() ? "SUCCESS" : "FAILED",
+                            null,
+                            result.overallMessage(),
+                            result.packageId(),
+                            result.steps()));
+                } catch (Exception e) {
+                    log.error("异步 pipeline 执行异常 batchId={}", batchId, e);
+                    asyncStatus.put(batchId, new PipelineStatusResponse(
+                            null, "FAILED", null, "执行异常: " + e.getMessage(), null, List.of()));
+                }
+            });
+        }
+
+        return batchId;
+    }
+
+    @Override
+    public PipelineStatusResponse getPipelineStatus(Long runId) {
+        // runId 在异步场景下实际传的是 batchId（executeAsync 返回 batchId 作为追踪 key）
+        PipelineStatusResponse status = asyncStatus.get(runId);
+        if (status == null) {
+            throw new BizException("无异步流水线状态: batchId=" + runId);
+        }
+        return status;
     }
 
     /** 定 run 终态 */

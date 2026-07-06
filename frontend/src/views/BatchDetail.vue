@@ -157,7 +157,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled, Close, Check, Clock, Loading } from '@element-plus/icons-vue'
-import { getBatchDetail, listPackagesByBatch, listReferenceImages, uploadReferenceImages, runPipeline } from '../api'
+import { getBatchDetail, listPackagesByBatch, listReferenceImages, uploadReferenceImages, runPipeline, getPipelineStatus } from '../api'
 
 const route = useRoute()
 const batchId = route.params.id
@@ -254,7 +254,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 const doPipeline = async () => {
   try {
     await ElMessageBox.confirm(
-      '将执行完整流水线，预计 2-5 分钟。执行期间请勿关闭页面。是否继续？',
+      '将异步执行完整流水线（预计 2-5 分钟）。执行期间可继续浏览其他页面，完成后自动刷新。是否开始？',
       '确认执行流水线',
       { type: 'warning', confirmButtonText: '开始执行', cancelButtonText: '取消' }
     )
@@ -264,28 +264,49 @@ const doPipeline = async () => {
   pipelineResult.value = null
   currentStepIndex.value = 0
 
-  // 后台启动步骤动画（每 15 秒推进一步，让用户有进度感）
-  const animTimer = setInterval(() => {
-    if (currentStepIndex.value < STEP_DEFS.length - 1) {
-      currentStepIndex.value++
-    }
-  }, 15000)
-
   try {
-    const result = await runPipeline(batchId)
-    pipelineResult.value = result
-    if (result.overallSuccess) {
-      ElMessage.success(`🎉 流水线完成！素材包 #${result.packageId}`)
-    } else {
-      ElMessage.warning(`流水线未完成：${result.overallMessage}`)
-    }
-    await load()
+    // 异步触发（立即返回）
+    await runPipeline(batchId)
+    ElMessage.info('流水线已启动，后台执行中...')
+    // 开始轮询状态
+    pollTimer.value = setInterval(pollStatus, 3000)
   } catch (e) {
     ElMessage.error(e.message)
-  } finally {
-    clearInterval(animTimer)
-    currentStepIndex.value = -1
     running.value = false
+  }
+}
+
+const pollTimer = ref(null)
+
+const pollStatus = async () => {
+  try {
+    const status = await getPipelineStatus(batchId)
+    if (status.steps?.length > 0) {
+      // 有真实步骤数据，更新展示
+      currentStepIndex.value = status.steps.filter(s => s.success).length
+      pipelineResult.value = { steps: status.steps, overallSuccess: false, overallMessage: status.overallMessage }
+    } else {
+      // 还没步骤数据，根据 currentStep 推进动画
+      const idx = STEP_DEFS.findIndex(s => s.key === status.currentStep)
+      if (idx >= 0) currentStepIndex.value = idx
+    }
+
+    if (status.status === 'SUCCESS') {
+      clearInterval(pollTimer.value)
+      pipelineResult.value = { steps: status.steps, overallSuccess: true, overallMessage: status.overallMessage }
+      ElMessage.success(`🎉 流水线完成！素材包 #${status.packageId}`)
+      running.value = false
+      await load()
+    } else if (status.status === 'FAILED') {
+      clearInterval(pollTimer.value)
+      pipelineResult.value = { steps: status.steps, overallSuccess: false, overallMessage: status.overallMessage }
+      ElMessage.warning('流水线未完成：' + status.overallMessage)
+      running.value = false
+      await load()
+    }
+  } catch (e) {
+    // 轮询出错不中断（可能是瞬时网络问题）
+    console.warn('轮询状态失败:', e.message)
   }
 }
 
