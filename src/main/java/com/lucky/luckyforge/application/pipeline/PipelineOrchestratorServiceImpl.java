@@ -24,6 +24,7 @@ import com.lucky.luckyforge.infrastructure.persistence.mapper.RunMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -249,6 +250,26 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
             return run.getCreatedAt().isBefore(LocalDateTime.now().minusMinutes(RUN_TIMEOUT_MINUTES));
         }
         return run.getStartedAt().isBefore(LocalDateTime.now().minusMinutes(RUN_TIMEOUT_MINUTES));
+    }
+
+    /**
+     * 定时清理：每 2 分钟扫描所有 RUNNING 状态的 run，超时的自动标记 FAILED。
+     * <p>无需前端触发，后端自动处理卡死的 run（如后端重启后遗留的 RUNNING）。
+     */
+    @Scheduled(fixedDelay = 120000) // 每 2 分钟
+    public void cleanupTimedOutRuns() {
+        List<Run> runningRuns = runMapper.selectList(
+                new LambdaQueryWrapper<Run>().eq(Run::getStatus, "RUNNING"));
+        for (Run run : runningRuns) {
+            if (isRunTimedOut(run)) {
+                log.warn("定时清理：run {} 在 RUNNING 状态超时（>{}分钟），自动标记 FAILED",
+                        run.getId(), RUN_TIMEOUT_MINUTES);
+                run.setStatus("FAILED");
+                run.setFinishedAt(LocalDateTime.now());
+                run.setError("执行超时（>" + RUN_TIMEOUT_MINUTES + "分钟未完成），自动清理");
+                runMapper.updateById(run);
+            }
+        }
     }
 
     /** 定 run 终态 */
