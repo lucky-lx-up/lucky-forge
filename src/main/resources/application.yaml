@@ -39,6 +39,7 @@ minio:
   secret-key: ${MINIO_SECRET_KEY:root123456}
   bucket: ${MINIO_BUCKET:lucky-forge}
 
-# 出图并发限流（虚拟线程并发实际并发度，避免触发 chatgpt2api 服务端限流）
+# 出图并发限流（实测：串行 concurrent-limit=1 反而更快且零 octet-stream 异常；
+# 并发=2 偶发 octet-stream 但被重试兜住。默认 1 求稳，想快可调 2-4）
 image:
-  concurrent-limit: ${IMAGE_CONCURRENT_LIMIT:4}
+  concurrent-limit: ${IMAGE_CONCURRENT_LIMIT:1}
