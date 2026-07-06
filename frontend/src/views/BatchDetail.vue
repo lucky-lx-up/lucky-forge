@@ -214,10 +214,27 @@ const load = async () => {
     batch.value = await getBatchDetail(batchId)
     packages.value = await listPackagesByBatch(batchId)
     referenceImages.value = await listReferenceImages(batchId)
+    // 检查是否有 pipeline 在跑（页面重新打开时恢复轮询）
+    checkRunningPipeline()
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
     loading.value = false
+  }
+}
+
+const checkRunningPipeline = async () => {
+  try {
+    const status = await getPipelineStatus(batchId)
+    if (status.status === 'RUNNING') {
+      running.value = true
+      currentStepIndex.value = STEP_DEFS.findIndex(s => s.key === status.currentStep)
+      if (currentStepIndex.value < 0) currentStepIndex.value = 0
+      ElMessage.info('检测到流水线执行中，已恢复进度显示')
+      pollTimer.value = setInterval(pollStatus, 3000)
+    }
+  } catch {
+    // 没有状态记录，正常（没跑过 pipeline）
   }
 }
 
@@ -281,31 +298,26 @@ const pollTimer = ref(null)
 const pollStatus = async () => {
   try {
     const status = await getPipelineStatus(batchId)
-    if (status.steps?.length > 0) {
-      // 有真实步骤数据，更新展示
-      currentStepIndex.value = status.steps.filter(s => s.success).length
-      pipelineResult.value = { steps: status.steps, overallSuccess: false, overallMessage: status.overallMessage }
-    } else {
-      // 还没步骤数据，根据 currentStep 推进动画
+
+    // 基于 currentStep 点亮进度（status 查 lf_run 表，重启不丢）
+    if (status.currentStep) {
       const idx = STEP_DEFS.findIndex(s => s.key === status.currentStep)
       if (idx >= 0) currentStepIndex.value = idx
     }
 
     if (status.status === 'SUCCESS') {
       clearInterval(pollTimer.value)
-      pipelineResult.value = { steps: status.steps, overallSuccess: true, overallMessage: status.overallMessage }
-      ElMessage.success(`🎉 流水线完成！素材包 #${status.packageId}`)
+      currentStepIndex.value = STEP_DEFS.length // 全部点亮
+      ElMessage.success('🎉 流水线完成！')
       running.value = false
       await load()
     } else if (status.status === 'FAILED') {
       clearInterval(pollTimer.value)
-      pipelineResult.value = { steps: status.steps, overallSuccess: false, overallMessage: status.overallMessage }
-      ElMessage.warning('流水线未完成：' + status.overallMessage)
+      ElMessage.warning('流水线未完成：' + (status.overallMessage || '执行失败'))
       running.value = false
       await load()
     }
   } catch (e) {
-    // 轮询出错不中断（可能是瞬时网络问题）
     console.warn('轮询状态失败:', e.message)
   }
 }

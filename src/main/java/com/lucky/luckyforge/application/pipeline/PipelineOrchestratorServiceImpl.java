@@ -29,7 +29,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 
 /**
@@ -45,9 +44,6 @@ import java.util.concurrent.Executors;
 public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorService {
 
     private static final Logger log = LoggerFactory.getLogger(PipelineOrchestratorServiceImpl.class);
-
-    /** 异步 pipeline 进度追踪：batchId → 当前状态（内存存储，单机首版够用） */
-    private final ConcurrentHashMap<Long, PipelineStatusResponse> asyncStatus = new ConcurrentHashMap<>();
 
     @Autowired private StyleAnalysisService styleAnalysisService;
     @Autowired private PromptBuilderService promptBuilderService;
@@ -187,32 +183,19 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
             throw new BizException("批次无参考图: " + batchId);
         }
 
-        // 检查是否已有 pipeline 在跑
-        PipelineStatusResponse existing = asyncStatus.get(batchId);
-        if (existing != null && "RUNNING".equals(existing.status())) {
+        // 检查是否已有 pipeline 在跑（查该 batch 最新的 run 是否 RUNNING）
+        Run latestRun = findLatestRun(batchId);
+        if (latestRun != null && "RUNNING".equals(latestRun.getStatus())) {
             throw new BizException("该批次已有流水线在执行中，请等待完成");
         }
 
-        // 立即存 RUNNING 状态（前端马上能轮询到）
-        asyncStatus.put(batchId, new PipelineStatusResponse(
-                null, "RUNNING", "STYLE", "流水线启动中...", null, List.of()));
-
-        // 虚拟线程后台执行
+        // 虚拟线程后台执行（进度通过 lf_run 表的 currentStep/status 追踪，重启不丢）
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             executor.submit(() -> {
                 try {
-                    PipelineResult result = execute(batchId);
-                    asyncStatus.put(batchId, new PipelineStatusResponse(
-                            result.runId(),
-                            result.overallSuccess() ? "SUCCESS" : "FAILED",
-                            null,
-                            result.overallMessage(),
-                            result.packageId(),
-                            result.steps()));
+                    execute(batchId);
                 } catch (Exception e) {
                     log.error("异步 pipeline 执行异常 batchId={}", batchId, e);
-                    asyncStatus.put(batchId, new PipelineStatusResponse(
-                            null, "FAILED", null, "执行异常: " + e.getMessage(), null, List.of()));
                 }
             });
         }
@@ -221,13 +204,27 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
     }
 
     @Override
-    public PipelineStatusResponse getPipelineStatus(Long runId) {
-        // runId 在异步场景下实际传的是 batchId（executeAsync 返回 batchId 作为追踪 key）
-        PipelineStatusResponse status = asyncStatus.get(runId);
-        if (status == null) {
-            throw new BizException("无异步流水线状态: batchId=" + runId);
+    public PipelineStatusResponse getPipelineStatus(Long batchId) {
+        // 查 lf_run 表（持久化，重启不丢）
+        Run run = findLatestRun(batchId);
+        if (run == null) {
+            // 可能 pipeline 刚触发，PromptBuilder 还没创建 run，返回启动中
+            return new PipelineStatusResponse(null, "RUNNING", "STYLE",
+                    "流水线启动中...", null, List.of());
         }
-        return status;
+        // 映射 run 状态为前端展示
+        String status = run.getStatus(); // PENDING/RUNNING/SUCCESS/FAILED
+        String currentStep = "SUCCESS".equals(status) || "FAILED".equals(status) ? null : run.getCurrentStep();
+        return new PipelineStatusResponse(run.getId(), status, currentStep,
+                run.getError(), null, List.of());
+    }
+
+    /** 查 batch 最新的 run 记录（按 id 倒序） */
+    private Run findLatestRun(Long batchId) {
+        return runMapper.selectOne(new LambdaQueryWrapper<Run>()
+                .eq(Run::getBatchId, batchId)
+                .orderByDesc(Run::getId)
+                .last("LIMIT 1"));
     }
 
     /** 定 run 终态 */
