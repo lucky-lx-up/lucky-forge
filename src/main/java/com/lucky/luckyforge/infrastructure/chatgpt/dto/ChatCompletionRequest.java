@@ -1,5 +1,7 @@
 package com.lucky.luckyforge.infrastructure.chatgpt.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.List;
 
 /**
@@ -10,6 +12,7 @@ import java.util.List;
  * @param messages 对话消息列表
  * @param temperature 采样温度，控制创造性
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record ChatCompletionRequest(
         String model,
         List<ChatMessage> messages,

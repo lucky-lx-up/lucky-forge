@@ -7,6 +7,8 @@ import com.lucky.luckyforge.infrastructure.chatgpt.dto.ChatCompletionRequest;
 import com.lucky.luckyforge.infrastructure.chatgpt.dto.ChatCompletionResponse;
 import com.lucky.luckyforge.infrastructure.chatgpt.dto.ImageGenerationRequest;
 import com.lucky.luckyforge.infrastructure.chatgpt.dto.ImageGenerationResponse;
+import com.lucky.luckyforge.infrastructure.chatgpt.dto.MultimodalChatCompletionRequest;
+import com.lucky.luckyforge.infrastructure.chatgpt.dto.MultimodalMessage;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
@@ -14,6 +16,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
+import java.util.List;
 
 /**
  * chatgpt2api 统一客户端。
@@ -54,6 +57,23 @@ public class ChatGpt2ApiClient {
      */
     public String chatCompletion(String systemPrompt, String userContent) {
         ChatCompletionRequest body = ChatCompletionRequest.of(MODEL_CHAT, systemPrompt, userContent);
+        ChatCompletionResponse resp = doPost("/v1/chat/completions", body,
+                ChatCompletionResponse.class, properties.getChatTimeoutSeconds());
+        return resp.firstContent();
+    }
+
+    /**
+     * 多模态补全（gpt-5.5）：含图片的调用场景，如风格提炼、视觉打分。
+     * <p>与纯文本 {@link #chatCompletion(String, String)} 共用同一 endpoint、模型与重试逻辑，
+     * 差别仅在请求体的 messages 含 {@code image_url} 类型内容部件。
+     *
+     * @param systemPrompt 系统提示词（可为空，常用于约束输出格式）
+     * @param messages     多模态消息列表（用户消息可含文字 + 图片 URL）
+     * @return 模型返回的首条文本
+     */
+    public String chatCompletion(String systemPrompt, List<MultimodalMessage> messages) {
+        MultimodalChatCompletionRequest body = MultimodalChatCompletionRequest.of(
+                MODEL_CHAT, systemPrompt, messages);
         ChatCompletionResponse resp = doPost("/v1/chat/completions", body,
                 ChatCompletionResponse.class, properties.getChatTimeoutSeconds());
         return resp.firstContent();
@@ -130,12 +150,45 @@ public class ChatGpt2ApiClient {
                 lastStatus, lastBody, lastException);
     }
 
-    /** 构建一次性的 RestClient（按调用场景的超时配置） */
+    /**
+     * 构建一次性的 RestClient，按调用场景配置连接与读取超时 + message converter。
+     *
+     * <p><b>超时</b>：用 {@link org.springframework.http.client.SimpleClientHttpRequestFactory}
+     * 设置 connect/read 超时。此前首版漏设超时导致挂起请求无限等待。
+     *
+     * <p><b>Message converter</b>：chatgpt2api 的出图响应偶发以
+     * {@code application/octet-stream}（而非 {@code application/json}）作为 Content-Type 返回。
+     * RestClient 默认的 converter 列表里，{@code ByteArrayHttpMessageConverter} 排在 Jackson 前面，
+     * 它也支持 octet-stream——会把响应体当 {@code byte[]} 消费，导致 Jackson 没机会解析为 DTO，
+     * 抛 RestClientException。
+     *
+     * <p>修法：替换默认 converter 列表为单个支持所有 MediaType 的 Jackson converter，
+     * 确保无论服务端返回什么 Content-Type，都由 Jackson 统一反序列化。
+     *
+     * @param timeoutSeconds 单次请求的连接与读取超时（秒）
+     */
     private RestClient buildClient(int timeoutSeconds) {
+        var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        int ms = Math.max(1, timeoutSeconds) * 1000;
+        factory.setConnectTimeout(ms);
+        factory.setReadTimeout(ms);
+
+        // 单个 Jackson converter 支持所有 MediaType（含 octet-stream）
+        var jacksonConverter = new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(
+                objectMapper);
+        jacksonConverter.setSupportedMediaTypes(List.of(
+                org.springframework.http.MediaType.APPLICATION_JSON,
+                org.springframework.http.MediaType.APPLICATION_OCTET_STREAM,
+                org.springframework.http.MediaType.ALL));
+
+        // 替换（而非追加）默认 converter 列表，避免 ByteArrayHttpMessageConverter 抢先
         return RestClient.builder()
+                .messageConverters(converters -> {
+                    converters.clear();
+                    converters.add(jacksonConverter);
+                })
+                .requestFactory(factory)
                 .build();
-        // 注：RestClient 的底层超时由 ClientHttpRequestFactory 决定；
-        // 为简化首版，统一用默认工厂，超时主要靠配置的 readTimeout。
     }
 
     /** 不可中断的退避等待（忽略中断，保证重试节奏） */

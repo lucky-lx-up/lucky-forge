@@ -1,12 +1,15 @@
 package com.lucky.luckyforge.infrastructure.chatgpt.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 
 /**
  * chatgpt2api 出图响应。
  * <p>data 为生成图列表，每项含 b64_json（Base64 编码图数据）或 url。
+ * 注意：JSON 字段为 snake_case（b64_json），Java 字段 b64Json 通过
+ * {@link JsonProperty} 映射。
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ImageGenerationResponse(
@@ -21,6 +24,9 @@ public record ImageGenerationResponse(
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record ImageData(String b64Json, String url) {
+    public record ImageData(
+            @JsonProperty("b64_json") String b64Json,
+            String url
+    ) {
     }
 }
