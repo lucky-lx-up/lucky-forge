@@ -35,10 +35,11 @@
       <div class="action-section" v-if="referenceImages.length > 0">
         <h4 class="action-title">已投喂的参考图（{{ referenceImages.length }} 张）</h4>
         <div class="ref-grid">
-          <div v-for="r in referenceImages" :key="r.id" class="ref-item">
+          <div v-for="(r, idx) in referenceImages" :key="r.id" class="ref-item">
             <el-image
               :src="r.previewUrl"
               :preview-src-list="referenceImages.map(x => x.previewUrl)"
+              :initial-index="idx"
               fit="cover"
               class="ref-thumb"
               loading="lazy"
@@ -46,6 +47,14 @@
               <template #error><div class="ref-error">加载失败</div></template>
               <template #placeholder><div class="ref-loading">...</div></template>
             </el-image>
+            <el-button
+              class="ref-remove"
+              circle
+              size="small"
+              type="danger"
+              :loading="removingId === r.id"
+              @click.stop="removeReference(r)"
+            ><el-icon><Close /></el-icon></el-button>
           </div>
         </div>
       </div>
@@ -157,7 +166,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled, Close, Check, Clock, Loading } from '@element-plus/icons-vue'
-import { getBatchDetail, listPackagesByBatch, listReferenceImages, uploadReferenceImages, runPipeline, getPipelineStatus } from '../api'
+import { getBatchDetail, listPackagesByBatch, listReferenceImages, uploadReferenceImages, deleteReferenceImage, runPipeline, getPipelineStatus } from '../api'
 
 const route = useRoute()
 const batchId = route.params.id
@@ -171,6 +180,7 @@ const pendingFiles = ref([])
 const pendingPreviews = ref([])
 const uploading = ref(false)
 const running = ref(false)
+const removingId = ref(null)
 
 // pipeline 步骤状态
 const STEP_DEFS = [
@@ -239,11 +249,22 @@ const checkRunningPipeline = async () => {
 }
 
 const onFileChange = (file) => {
-  pendingFiles.value.push(file.raw)
+  const raw = file.raw
+  // 前端兜底校验：类型必须为图片
+  if (!raw.type || !raw.type.startsWith('image/')) {
+    ElMessage.warning('仅支持图片文件')
+    return
+  }
+  // 前端兜底校验：单张不能超过 10MB（与后端 application.yaml max-file-size 对齐）
+  if (raw.size > 10 * 1024 * 1024) {
+    ElMessage.warning('单张图片不能超过 10MB')
+    return
+  }
+  pendingFiles.value.push(raw)
   // 生成缩略图预览
   const reader = new FileReader()
   reader.onload = (e) => pendingPreviews.value.push(e.target.result)
-  reader.readAsDataURL(file.raw)
+  reader.readAsDataURL(raw)
 }
 
 const removeFile = (index) => {
@@ -255,14 +276,38 @@ const doUpload = async () => {
   uploading.value = true
   try {
     const result = await uploadReferenceImages(batchId, pendingFiles.value)
+    // 乐观更新：直接用返回的 previewUrl 渲染，免去一次列表查询
+    result.forEach(r => {
+      referenceImages.value.push({ ...r, source: 'MANUAL' })
+    })
     ElMessage.success(`已上传 ${result.length} 张参考图`)
     pendingFiles.value = []
     pendingPreviews.value = []
-    referenceImages.value = await listReferenceImages(batchId)
   } catch (e) {
     ElMessage.error(e.message)
   } finally {
     uploading.value = false
+  }
+}
+
+const removeReference = async (r) => {
+  try {
+    await ElMessageBox.confirm(
+      '确定删除该参考图？删除后不可恢复。',
+      '删除参考图',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch { return }
+
+  removingId.value = r.id
+  try {
+    await deleteReferenceImage(batchId, r.id)
+    referenceImages.value = referenceImages.value.filter(x => x.id !== r.id)
+    ElMessage.success('已删除')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    removingId.value = null
   }
 }
 
@@ -447,6 +492,7 @@ onMounted(load)
 }
 
 .ref-item {
+  position: relative;
   aspect-ratio: 1;
   border-radius: 8px;
   overflow: hidden;
@@ -457,6 +503,23 @@ onMounted(load)
   width: 100%;
   height: 100%;
   cursor: pointer;
+}
+
+/* hover 时浮出删除按钮 */
+.ref-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  padding: 0 !important;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.ref-item:hover .ref-remove {
+  opacity: 1;
 }
 
 .ref-error, .ref-loading {

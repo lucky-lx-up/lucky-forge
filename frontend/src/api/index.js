@@ -54,6 +54,9 @@ export const getPipelineStatus = (batchId) =>
 export const listReferenceImages = (batchId) =>
   api.get(`/batches/${batchId}/reference-images`)
 
+export const deleteReferenceImage = (batchId, id) =>
+  api.delete(`/batches/${batchId}/reference-images/${id}`)
+
 // ===== 素材包 =====
 export const listPackagesByBatch = (batchId) =>
   api.get(`/batches/${batchId}/packages`)

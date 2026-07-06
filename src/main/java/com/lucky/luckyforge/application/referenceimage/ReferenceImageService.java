@@ -20,4 +20,15 @@ public interface ReferenceImageService {
      * @return 每张图对应的上传响应（顺序与入参一致）
      */
     List<ReferenceImageUploadResponse> uploadReferences(Long batchId, List<MultipartFile> files);
+
+    /**
+     * 删除单张参考图。
+     * <p>校验图片存在且属于指定批次，先删 lf_reference_image 记录，再 best-effort 删除 MinIO 对象。
+     * <p>MinIO 不可回滚：先删库可保证业务一致（用户视角已删除），MinIO 删除失败仅告警不抛错，孤儿对象留待后续清理。
+     *
+     * @param batchId      所属批次 id（用于归属校验，防跨批次误删）
+     * @param referenceId  参考图记录 id
+     * @throws com.lucky.luckyforge.common.exception.BizException 图片不存在或不属于该批次
+     */
+    void deleteReference(Long batchId, Long referenceId);
 }
