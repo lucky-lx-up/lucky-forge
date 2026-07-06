@@ -57,9 +57,25 @@ public class ReferenceImageServiceImpl implements ReferenceImageService {
             throw new BizException("未提供任何参考图文件");
         }
 
+        // 逐张上传，单点失败不中断整批（与设计决策一致：已成功的图保留）。
+        // 失败记日志并跳过；全失败才抛异常，部分成功则返回成功列表（前端按返回长度判断部分失败）。
         List<ReferenceImageUploadResponse> results = new ArrayList<>(files.size());
+        int failed = 0;
         for (MultipartFile file : files) {
-            results.add(uploadOne(batchId, batch.getVertical(), file));
+            String filename = file.getOriginalFilename();
+            try {
+                results.add(uploadOne(batchId, batch.getVertical(), file));
+            } catch (RuntimeException e) {
+                failed++;
+                log.warn("参考图上传失败，已跳过 batchId={} filename={}: {}",
+                        batchId, filename, e.getMessage());
+            }
+        }
+        if (results.isEmpty()) {
+            throw new BizException("全部 " + files.size() + " 张参考图上传失败");
+        }
+        if (failed > 0) {
+            log.info("参考图上传部分成功：成功 {} 张，失败 {} 张，batchId={}", results.size(), failed, batchId);
         }
         return results;
     }

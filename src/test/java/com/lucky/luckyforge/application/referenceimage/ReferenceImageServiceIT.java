@@ -31,14 +31,32 @@ class ReferenceImageServiceIT {
     @Autowired private ReferenceImageMapper referenceImageMapper;
 
     @Test
-    void 上传参考图_非图片类型被拒() {
+    void 上传参考图_全部失败抛异常() {
         Long batchId = batchService.createBatch(new BatchCreateRequest("test", 1, null));
+        // 单张非图片 → uploadOne 抛 BizException → results 为空 → 整批失败抛异常
         MockMultipartFile txt = new MockMultipartFile(
                 "files", "note.txt", "text/plain", "hello".getBytes());
 
         BizException ex = assertThrows(BizException.class,
                 () -> referenceImageService.uploadReferences(batchId, List.of(txt)));
-        assertTrue(ex.getMessage().contains("仅支持图片文件"));
+        assertTrue(ex.getMessage().contains("全部"), "全失败时应抛整批失败异常");
+    }
+
+    @Test
+    void 上传参考图_部分失败返回成功列表() {
+        Long batchId = batchService.createBatch(new BatchCreateRequest("test", 1, null));
+        MockMultipartFile img = new MockMultipartFile(
+                "files", "ref.jpg", "image/jpeg", new byte[]{1, 2, 3});
+        MockMultipartFile txt = new MockMultipartFile(
+                "files", "note.txt", "text/plain", "hello".getBytes());
+
+        // 混入一张非图片：成功的图应保留，失败的跳过，不抛异常
+        List<ReferenceImageUploadResponse> result =
+                referenceImageService.uploadReferences(batchId, List.of(img, txt));
+
+        assertEquals(1, result.size(), "仅 1 张图片成功");
+        assertNotNull(result.get(0).previewUrl());
+        assertTrue(result.get(0).previewUrl().startsWith("http"));
     }
 
     @Test

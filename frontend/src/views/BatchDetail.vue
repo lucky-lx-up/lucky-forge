@@ -274,13 +274,20 @@ const removeFile = (index) => {
 
 const doUpload = async () => {
   uploading.value = true
+  const submitted = pendingFiles.value.length
   try {
     const result = await uploadReferenceImages(batchId, pendingFiles.value)
     // 乐观更新：直接用返回的 previewUrl 渲染，免去一次列表查询
     result.forEach(r => {
       referenceImages.value.push({ ...r, source: 'MANUAL' })
     })
-    ElMessage.success(`已上传 ${result.length} 张参考图`)
+    // 后端单点失败不中断整批：成功列表可能少于提交数
+    const failed = submitted - result.length
+    if (failed > 0) {
+      ElMessage.warning(`成功 ${result.length} 张，失败 ${failed} 张（已跳过失败项）`)
+    } else {
+      ElMessage.success(`已上传 ${result.length} 张参考图`)
+    }
     pendingFiles.value = []
     pendingPreviews.value = []
   } catch (e) {
