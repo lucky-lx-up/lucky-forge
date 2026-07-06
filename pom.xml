@@ -15,7 +15,11 @@
     <description>lucky-forge</description>
     <url/>
     <licenses>
-        <license/>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+            <distribution>repo</distribution>
+        </license>
     </licenses>
     <developers>
         <developer/>
@@ -155,5 +159,31 @@
             </plugin>
         </plugins>
     </build>
+
+    <!--
+        集成测试 profile：mvn test -Pintegration
+        默认 mvn test 只跑 *Test（纯单元测试，不依赖外部服务）；
+        加 -Pintegration 后额外纳入 *IT（集成测试，需真实 MySQL + MinIO）。
+        LiveIT（连真实 chatgpt2api）始终由 @EnabledIfEnvironmentVariable 控制，不受此 profile 影响。
+    -->
+    <profiles>
+        <profile>
+            <id>integration</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>**/*Test.java</include>
+                                <include>**/*IT.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

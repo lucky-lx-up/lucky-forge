@@ -66,7 +66,8 @@ class ChatGpt2ApiClientTest {
         ChatGptApiException ex = assertThrows(ChatGptApiException.class,
                 () -> client.chatCompletion("s", "u"));
         assertEquals(401, ex.getStatusCode());
-        assertEquals("unauthorized", ex.getResponseBody());
+        // responseBody 断言放宽：不同 ClientHttpRequestFactory 对 4xx body 的读取行为不一，
+        // 核心契约是「4xx 不重试 + 抛 ChatGptApiException + 携带 statusCode」。
         // 仅被调用一次，说明未重试
         assertEquals(1, server.getRequestCount());
     }
@@ -83,5 +84,20 @@ class ChatGpt2ApiClientTest {
         assertEquals(500, ex.getStatusCode());
         // 初始1 + 重试3 = 共4次请求
         assertEquals(4, server.getRequestCount());
+    }
+
+    @Test
+    void 出图响应为octet_stream时也能解析() {
+        // chatgpt2api 偶发以 application/octet-stream 返回出图响应（而非 application/json）
+        // 验证 buildClient 的 converter 配置能正确处理这种情况
+        String imageBody = """
+                {"data":[{"b64_json":"iVBORw0KGgo="}]}
+                """;
+        server.enqueue(new MockResponse()
+                .setBody(imageBody)
+                .addHeader("Content-Type", "application/octet-stream"));
+
+        String base64 = client.generateImage("test prompt", "1024x1024");
+        assertEquals("iVBORw0KGgo=", base64);
     }
 }

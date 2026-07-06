@@ -57,3 +57,8 @@ application-prod.yml
 workspace/
 /.codex/
 /openspec/
+/.zcode/
+
+### 前端工程（node_modules / dist 不入库）###
+/frontend/node_modules/
+/frontend/dist/

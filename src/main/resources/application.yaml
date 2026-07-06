@@ -2,6 +2,12 @@ spring:
   application:
     name: lucky-forge
 
+  # Multipart 文件上传限制（参考图/壁纸通常 1-5MB）
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 50MB
+
   # MySQL 连接（占位，敏感信息走环境变量，不写明文）
   datasource:
     url: ${MYSQL_URL:jdbc:mysql://192.168.2.137:3306/lucky_forge?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai}
@@ -20,9 +26,9 @@ mybatis-plus:
 
 # chatgpt2api 客户端（自部署服务，文字分析/打分/文案 + 出图）
 chatgpt2api:
-  base-url: ${CHATGPT2API_BASE_URL:http://192.168.2.137:8080}
-  api-key: ${CHATGPT2API_API_KEY:}
-  chat-timeout-seconds: 60            # 文字分析单次请求超时
+  base-url: ${CHATGPT2API_BASE_URL:http://192.168.2.137:13000}
+  api-key: ${CHATGPT2API_API_KEY:00000000}
+  chat-timeout-seconds: 90            # 文字分析单次请求超时
   image-timeout-seconds: 120          # 出图单次请求超时（出图耗时较长）
   max-retries: 3                      # 最大重试次数（指数退避：1s→2s→4s）
 
@@ -32,3 +38,7 @@ minio:
   access-key: ${MINIO_ACCESS_KEY:root}
   secret-key: ${MINIO_SECRET_KEY:root123456}
   bucket: ${MINIO_BUCKET:lucky-forge}
+
+# 出图并发限流（虚拟线程并发实际并发度，避免触发 chatgpt2api 服务端限流）
+image:
+  concurrent-limit: ${IMAGE_CONCURRENT_LIMIT:4}
