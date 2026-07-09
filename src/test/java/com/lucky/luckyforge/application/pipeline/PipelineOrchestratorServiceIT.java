@@ -1,5 +1,6 @@
 package com.lucky.luckyforge.application.pipeline;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.lucky.luckyforge.application.imagegenerator.ImageGeneratorService;
 import com.lucky.luckyforge.application.imagegenerator.dto.ImageGenerationResult;
 import com.lucky.luckyforge.application.imagegenerator.dto.ImageGenerationSummary;
@@ -29,7 +30,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -51,6 +55,9 @@ class PipelineOrchestratorServiceIT {
     @Autowired private BatchMapper batchMapper;
     @Autowired private ReferenceImageMapper referenceImageMapper;
     @Autowired private RunMapper runMapper;
+    // executeAsync 在虚拟线程（独立连接/事务）后台执行，测试设置的数据必须先提交才能被异步线程读到。
+    // 类上的 @Transactional 会让所有插入都留在未提交事务中，因此异步用例借助 TransactionTemplate 显式提交设置数据。
+    @Autowired private PlatformTransactionManager transactionManager;
 
     @MockBean private StyleAnalysisService styleAnalysisService;
     @MockBean private PromptBuilderService promptBuilderService;
@@ -213,6 +220,73 @@ class PipelineOrchestratorServiceIT {
         assertEquals(ids[1], resp.runId());
     }
 
+    @Test
+    @Transactional(propagation = Propagation.NEVER)
+    // executeAsync 后台虚拟线程用独立连接/事务，测试自身不能持有未提交事务，
+    // 否则异步线程既看不到设置数据，也看不到预创建 run（孤儿 RUNNING），故本用例不开事务。
+    void executeAsync早期失败_预创建run标FAILED() throws Exception {
+        Long batchId = setupBatchWithReferenceOnly();
+
+        // STYLE 步骤直接抛异常 → execute 早期失败，PromptBuilder 不会创建正式 run
+        when(styleAnalysisService.analyze(batchId))
+                .thenThrow(new BizException("风格提炼失败"));
+
+        pipelineOrchestratorService.executeAsync(batchId);
+
+        // executeAsync 异步执行，轮询等待预创建 run 变为终态（最多 10 秒）
+        Run run = waitForRunTerminalStatus(batchId, 10);
+        assertNotNull(run, "应存在 run 记录");
+        assertEquals("FAILED", run.getStatus(),
+                "execute 早期失败时预创建 run 应标 FAILED，而非虚假 SUCCESS");
+        assertNotNull(run.getError(), "失败时应写入 error 信息");
+        assertNotNull(run.getFinishedAt(), "应有完成时间");
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NEVER)
+    // executeAsync 后台虚拟线程用独立连接/事务，测试自身不能持有未提交事务（同上）。
+    void executeAsync全流程成功_预创建run标SUCCESS() throws Exception {
+        Long batchId = setupBatchWithReferenceOnly();
+
+        // mock 全流程成功（复用 IT 已有的 mock 模式，runId 用一个固定值）
+        long runId = 999L;
+        when(styleAnalysisService.analyze(batchId)).thenReturn(
+                new StyleAnalysisResponse(10L, "测试风格", "描述", "{}", batchId));
+        when(promptBuilderService.generatePrompts(eq(batchId), any())).thenReturn(List.of(
+                new PromptGenerationResponse(1L, runId, 1, "p")));
+        when(imageGeneratorService.generateImages(runId)).thenReturn(
+                new ImageGenerationSummary(runId, 2, 2, 0, List.of()));
+        when(imageScorerService.scoreImages(runId)).thenReturn(
+                new ScoreSummary(runId, 2, 2, 0, 2, List.of()));
+        when(packageAssemblerService.assemble(runId)).thenReturn(
+                new PackageAssemblyResponse(5L, runId, batchId, "标题", List.of("标签"),
+                        List.of(new PackageImageItem(1L, "test/1.png", 0, new BigDecimal("95")))));
+
+        pipelineOrchestratorService.executeAsync(batchId);
+
+        Run run = waitForRunTerminalStatus(batchId, 10);
+        assertNotNull(run);
+        // PromptBuilder 被 mock，runId=999 不会真落库；finalizeRun(999,...) 因 selectById(999)=null 直接 return。
+        // 轮询取到的是预创建 run，execute 成功时它应被标 SUCCESS（回归保护）。
+        assertEquals("SUCCESS", run.getStatus());
+    }
+
+    // 辅助：轮询等待 batch 最新的 run 变为非 RUNNING 终态
+    private Run waitForRunTerminalStatus(Long batchId, int timeoutSeconds) throws Exception {
+        long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;
+        while (System.currentTimeMillis() < deadline) {
+            Run run = runMapper.selectOne(new LambdaQueryWrapper<Run>()
+                    .eq(Run::getBatchId, batchId)
+                    .orderByDesc(Run::getId)
+                    .last("LIMIT 1"));
+            if (run != null && !"RUNNING".equals(run.getStatus())) {
+                return run;
+            }
+            Thread.sleep(200);
+        }
+        return null;
+    }
+
     // ===== 辅助：创建 batch + 参考图 + run（run 给 PromptBuilder 的 mock 返回用）=====
 
     private Long[] setupBatchWithReferenceAndRun() {
@@ -236,5 +310,30 @@ class PipelineOrchestratorServiceIT {
         runMapper.insert(run);
 
         return new Long[]{batch.getId(), run.getId()};
+    }
+
+    // 辅助：只建 batch + 参考图（不预建 run，让 executeAsync 自己创建）
+    // executeAsync 在虚拟线程（独立事务）执行，故此处用独立事务提交，确保异步线程能读到这些数据。
+    private Long setupBatchWithReferenceOnly() {
+        Batch batch = new Batch();
+        batch.setVertical("WALLPAPER");
+        batch.setTargetCount(2);
+        batch.setStatus(BatchStatus.DRAFT.value());
+        batch.setTheme("test-async");
+
+        ReferenceImage ref = new ReferenceImage();
+        ref.setObjectKey("test/async/" + System.nanoTime() + ".jpg");
+        ref.setSource("MANUAL");
+
+        // 用独立事务提交，使其在 executeAsync 启动虚拟线程前就对其它事务可见
+        TransactionTemplate tt = new TransactionTemplate(transactionManager);
+        tt.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
+        tt.executeWithoutResult(status -> {
+            batchMapper.insert(batch);
+            ref.setBatchId(batch.getId());
+            referenceImageMapper.insert(ref);
+        });
+
+        return batch.getId();
     }
 }
