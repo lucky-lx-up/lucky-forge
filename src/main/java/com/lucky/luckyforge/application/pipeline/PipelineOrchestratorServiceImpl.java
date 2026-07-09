@@ -217,15 +217,27 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
         final Long preRunId = preRun.getId();
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             executor.submit(() -> {
+                boolean success = false;
+                String failureMsg = null;
                 try {
-                    execute(batchId);
+                    PipelineResult result = execute(batchId);
+                    success = result.overallSuccess();
+                    if (!success) {
+                        failureMsg = result.overallMessage();
+                    }
                 } catch (Exception e) {
+                    failureMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     log.error("异步 pipeline 执行异常 batchId={}", batchId, e);
                 } finally {
-                    // 无论成功失败，把预创建的 run 也标记终态（避免孤儿 RUNNING）
+                    // 按 execute 真实结果标记预创建 run 终态（避免孤儿 RUNNING）
                     Run pre = runMapper.selectById(preRunId);
                     if (pre != null && "RUNNING".equals(pre.getStatus())) {
-                        pre.setStatus("SUCCESS"); // 预创建的只是标记，实际成败由 PromptBuilder 的 run 体现
+                        if (success) {
+                            pre.setStatus("SUCCESS");
+                        } else {
+                            pre.setStatus("FAILED");
+                            pre.setError(failureMsg != null ? failureMsg : "流水线执行失败");
+                        }
                         pre.setFinishedAt(LocalDateTime.now());
                         runMapper.updateById(pre);
                     }
