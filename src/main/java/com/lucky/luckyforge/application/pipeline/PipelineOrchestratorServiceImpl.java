@@ -241,9 +241,10 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
         // 查 lf_run 表（持久化，重启不丢）
         Run run = findLatestRun(batchId);
         if (run == null) {
-            // 可能 pipeline 刚触发，PromptBuilder 还没创建 run，返回启动中
-            return new PipelineStatusResponse(null, "RUNNING", "STYLE",
-                    "流水线启动中...", null, List.of());
+            // 无 run 记录 = 从未成功触发过 pipeline（executeAsync 成功后会预创建 run）。
+            // 返回 IDLE 而非 RUNNING，避免前端 checkRunningPipeline 误判为"执行中"而永久轮询。
+            return new PipelineStatusResponse(null, "IDLE", null,
+                    "无流水线执行记录", null, List.of());
         }
         // 映射 run 状态为前端展示
         String status = run.getStatus(); // PENDING/RUNNING/SUCCESS/FAILED
