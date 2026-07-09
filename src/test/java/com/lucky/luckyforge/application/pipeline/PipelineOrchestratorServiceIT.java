@@ -10,6 +10,7 @@ import com.lucky.luckyforge.application.packageassembler.PackageAssemblerService
 import com.lucky.luckyforge.application.packageassembler.dto.PackageAssemblyResponse;
 import com.lucky.luckyforge.application.packageassembler.dto.PackageImageItem;
 import com.lucky.luckyforge.application.pipeline.dto.PipelineResult;
+import com.lucky.luckyforge.application.pipeline.dto.PipelineStatusResponse;
 import com.lucky.luckyforge.application.promptbuilder.PromptBuilderService;
 import com.lucky.luckyforge.application.promptbuilder.dto.PromptGenerationResponse;
 import com.lucky.luckyforge.application.styleanalysis.StyleAnalysisService;
@@ -182,6 +183,34 @@ class PipelineOrchestratorServiceIT {
                 () -> pipelineOrchestratorService.execute(batch.getId()));
         assertTrue(ex.getMessage().contains("无参考图"));
         verifyNoInteractions(styleAnalysisService);
+    }
+
+    @Test
+    void 无run记录时getPipelineStatus返回IDLE() {
+        // 建一个 batch 但不创建任何 run（模拟"从未成功触发过 pipeline"）
+        Batch batch = new Batch();
+        batch.setVertical("WALLPAPER");
+        batch.setTargetCount(1);
+        batch.setStatus(BatchStatus.DRAFT.value());
+        batchMapper.insert(batch);
+
+        PipelineStatusResponse resp = pipelineOrchestratorService.getPipelineStatus(batch.getId());
+
+        assertEquals("IDLE", resp.status(), "无 run 记录应返回 IDLE，而非诱导轮询的 RUNNING");
+        assertNull(resp.runId());
+        assertNull(resp.currentStep(), "IDLE 无当前步骤");
+    }
+
+    @Test
+    void 有RUNNING的run时getPipelineStatus返回RUNNING() {
+        Long[] ids = setupBatchWithReferenceAndRun();
+        Long batchId = ids[0];
+
+        PipelineStatusResponse resp = pipelineOrchestratorService.getPipelineStatus(batchId);
+
+        assertEquals("RUNNING", resp.status(), "有 RUNNING 的 run 应原样返回 RUNNING");
+        assertEquals("STYLE", resp.currentStep());
+        assertEquals(ids[1], resp.runId());
     }
 
     // ===== 辅助：创建 batch + 参考图 + run（run 给 PromptBuilder 的 mock 返回用）=====
