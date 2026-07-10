@@ -103,6 +103,10 @@
       <div class="action-section">
         <h4 class="action-title">② 一键执行流水线</h4>
         <p class="action-hint">串联执行：风格提炼 → 提示词生成 → 批量出图 → 自动打分 → 素材打包</p>
+        <div class="count-selector">
+          <span class="count-label">生成张数</span>
+          <el-input-number v-model="generateCount" :min="1" :max="12" size="default" :disabled="running" />
+        </div>
         <el-button
           type="success"
           size="large"
@@ -181,6 +185,7 @@ const pendingPreviews = ref([])
 const uploading = ref(false)
 const running = ref(false)
 const removingId = ref(null)
+const generateCount = ref(4)
 
 // pipeline 步骤状态
 const STEP_DEFS = [
@@ -222,6 +227,7 @@ const load = async () => {
   loading.value = true
   try {
     batch.value = await getBatchDetail(batchId)
+    generateCount.value = Math.min(batch.value.targetCount || 4, 12)
     packages.value = await listPackagesByBatch(batchId)
     referenceImages.value = await listReferenceImages(batchId)
     // 检查是否有 pipeline 在跑（页面重新打开时恢复轮询）
@@ -336,7 +342,7 @@ const doPipeline = async () => {
 
   try {
     // 异步触发（立即返回）
-    await runPipeline(batchId)
+    await runPipeline(batchId, generateCount.value)
     ElMessage.info('流水线已启动，后台执行中...')
     // 开始轮询状态
     pollTimer.value = setInterval(pollStatus, 3000)
@@ -436,6 +442,19 @@ onMounted(load)
   margin: 0 0 12px 0;
   font-size: 13px;
   color: #909399;
+}
+
+.count-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px 0;
+}
+
+.count-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d2129;
 }
 
 .upload-area {

@@ -45,8 +45,8 @@ export const uploadReferenceImages = (batchId, files) => {
   })
 }
 
-export const runPipeline = (batchId) =>
-  api.post(`/batches/${batchId}/pipeline`)
+export const runPipeline = (batchId, count) =>
+  api.post(`/batches/${batchId}/pipeline`, count != null ? { count } : {})
 
 export const getPipelineStatus = (batchId) =>
   api.get(`/batches/${batchId}/pipeline/status`)
