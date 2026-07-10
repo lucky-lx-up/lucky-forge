@@ -34,10 +34,10 @@ import java.util.stream.Collectors;
 /**
  * 素材打包服务实现（流水线第⑤环）。
  * <p>流程：校验 run → 查 run 下所有 score（按 total 降序取 Top N）→ 多模态调 gpt-5.5 生成标题/标签
- * → 覆盖式写 lf_package + lf_package_image → 推进 run.currentStep=PACKAGE。
+ * → 累积式写 lf_package + lf_package_image → 推进 run.currentStep=PACKAGE。
  *
  * <p>关键设计：一个 run 一个包；标题看 Top N 图生成（≤5 张）；sort_order 按 total 降序（最高分封面）；
- * 覆盖式（先删旧 image + 逻辑删旧 package，再插新）。
+ * 累积式（每次打包追加新 package，历史保留，多次执行可查看全部历史产出）。
  *
  * <p>注意：本服务的写库逻辑在**主线程**执行（非虚拟线程，与 ImageScorer/ImageGenerator 不同），
  * 因为打包是单次 gpt 调用 + 单次写库，无需并发。故用 @Transactional 即可（无自调用问题）。
@@ -115,16 +115,7 @@ public class PackageAssemblerServiceImpl implements PackageAssemblerService {
                 ? styleMapper.selectById(batch.getStyleId()) : null;
         GeneratedTitle generated = generateTitle(topImages, style);
 
-        // 6. 覆盖式写库（@Transactional 保护）
-        // 6.1 查该 batch 既有未删除 package，有则先删 image + 逻辑删 package
-        List<Package> existingPackages = packageMapper.selectList(
-                new LambdaQueryWrapper<Package>().eq(Package::getBatchId, run.getBatchId()));
-        for (Package old : existingPackages) {
-            packageImageMapper.delete(new LambdaQueryWrapper<PackageImage>()
-                    .eq(PackageImage::getPackageId, old.getId()));
-            packageMapper.deleteById(old.getId()); // 逻辑删除（deletedAt 生效）
-        }
-        // 6.2 插新 package
+        // 6. 累积式写库（@Transactional 保护）：直接追加新 package，历史保留
         Package pkg = new Package();
         pkg.setBatchId(run.getBatchId());
         pkg.setVertical(vertical);
