@@ -123,7 +123,7 @@ public class PackageAssemblerServiceImpl implements PackageAssemblerService {
         pkg.setTags(generated.tagsJson); // JSON 数组字符串
         pkg.setStatus("DRAFT");
         packageMapper.insert(pkg);
-        // 6.3 插 package_image（按 topImages 在 topScores 中的 total 降序 sort_order）
+        // 6.2 插 package_image（按 topImages 在 topScores 中的 total 降序 sort_order）
         // 构建 imageId -> score 映射
         java.util.Map<Long, BigDecimal> imgScore = topScores.stream()
                 .collect(Collectors.toMap(Score::getGeneratedImageId,

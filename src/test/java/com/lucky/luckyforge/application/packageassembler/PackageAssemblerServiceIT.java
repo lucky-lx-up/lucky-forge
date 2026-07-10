@@ -31,7 +31,7 @@ import static org.mockito.Mockito.*;
  * {@link PackageAssemblerService} 集成测试（mock chatgpt2api，连真实 MySQL）。
  * <p>PackageAssembler 在主线程执行（@Transactional），故可正常查 DB 验证落库。
  *
- * <p>覆盖：正常打包 + sort_order + 覆盖式 + run 无打分拒绝 + gpt 非法 JSON。
+ * <p>覆盖：正常打包 + sort_order + 累积式（历史保留）+ run 无打分拒绝 + gpt 非法 JSON。
  */
 @SpringBootTest
 @ActiveProfiles("test")
