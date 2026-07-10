@@ -227,6 +227,7 @@ const load = async () => {
     // 检查是否有 pipeline 在跑（页面重新打开时恢复轮询）
     checkRunningPipeline()
   } catch (e) {
+    console.error('[load] 异常:', e)
     ElMessage.error(e.message)
   } finally {
     loading.value = false

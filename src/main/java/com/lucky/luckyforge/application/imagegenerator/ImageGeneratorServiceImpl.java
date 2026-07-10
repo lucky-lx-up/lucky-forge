@@ -9,7 +9,6 @@ import com.lucky.luckyforge.infrastructure.persistence.entity.Batch;
 import com.lucky.luckyforge.infrastructure.persistence.entity.GeneratedImage;
 import com.lucky.luckyforge.infrastructure.persistence.entity.Prompt;
 import com.lucky.luckyforge.infrastructure.persistence.entity.Run;
-import com.lucky.luckyforge.infrastructure.persistence.enums.RunStatus;
 import com.lucky.luckyforge.infrastructure.persistence.mapper.BatchMapper;
 import com.lucky.luckyforge.infrastructure.persistence.mapper.GeneratedImageMapper;
 import com.lucky.luckyforge.infrastructure.persistence.mapper.PromptMapper;
@@ -103,18 +102,9 @@ public class ImageGeneratorServiceImpl implements ImageGeneratorService {
         // 5. 虚拟线程并发出图
         List<ImageGenerationResult> results = concurrentGenerate(prompts, batch.getVertical(), size);
 
-        // 6. 汇总 + 更新 run 状态
+        // 6. 汇总结果返回（run 终态由 PipelineOrchestrator 统一管理，本步骤不越权设置）
         int succeeded = (int) results.stream().filter(ImageGenerationResult::success).count();
         int failed = results.size() - succeeded;
-
-        run.setFinishedAt(LocalDateTime.now());
-        if (failed == 0) {
-            run.setStatus(RunStatus.SUCCESS.value());
-        } else {
-            run.setStatus(RunStatus.FAILED.value());
-            run.setError(buildErrorMessage(results));
-        }
-        runMapper.updateById(run);
 
         return new ImageGenerationSummary(runId, results.size(), succeeded, failed, results);
     }
@@ -230,16 +220,5 @@ public class ImageGeneratorServiceImpl implements ImageGeneratorService {
         } catch (Exception e) {
             return new int[]{0, 0};
         }
-    }
-
-    /** 拼接失败明细供 run.error */
-    private String buildErrorMessage(List<ImageGenerationResult> results) {
-        StringBuilder sb = new StringBuilder("部分出图失败:");
-        for (ImageGenerationResult r : results) {
-            if (!r.success()) {
-                sb.append("\n  - prompt(seq=").append(r.seq()).append("): ").append(r.errorMessage());
-            }
-        }
-        return sb.toString();
     }
 }
