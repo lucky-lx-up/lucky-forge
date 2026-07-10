@@ -37,6 +37,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -269,6 +271,38 @@ class PipelineOrchestratorServiceIT {
         // PromptBuilder 被 mock，runId=999 不会真落库；finalizeRun(999,...) 因 selectById(999)=null 直接 return。
         // 轮询取到的是预创建 run，execute 成功时它应被标 SUCCESS（回归保护）。
         assertEquals("SUCCESS", run.getStatus());
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NEVER)
+    void executeAsync应立即返回不阻塞等待execute完成() throws Exception {
+        Long batchId = setupBatchWithReferenceOnly();
+
+        // 用 latch 让 analyze 阻塞：execute() 会卡在 STYLE 步骤直到 latch 释放
+        CountDownLatch analyzeStarted = new CountDownLatch(1);
+        CountDownLatch releaseAnalyze = new CountDownLatch(1);
+        when(styleAnalysisService.analyze(batchId)).thenAnswer(inv -> {
+            analyzeStarted.countDown();
+            // 阻塞直到测试主线程释放（最多等 10 秒兜底，避免卡死）
+            releaseAnalyze.await(10, TimeUnit.SECONDS);
+            throw new BizException("测试用阻塞已结束");
+        });
+
+        long start = System.currentTimeMillis();
+        pipelineOrchestratorService.executeAsync(batchId);
+        long elapsed = System.currentTimeMillis() - start;
+
+        // executeAsync 应在 execute() 完成前就返回（analyze 还在阻塞中）
+        // 阈值 2000ms：execute() 至少阻塞 3 秒，若 executeAsync 阻塞等待则 elapsed >= 3000
+        assertTrue(elapsed < 2000,
+                "executeAsync 应立即返回，实际耗时 " + elapsed + "ms（疑似阻塞等待 execute）");
+
+        // 确认 analyze 确实被调用了（后台任务已启动）
+        assertTrue(analyzeStarted.await(2, TimeUnit.SECONDS),
+                "后台任务应在 executeAsync 返回后被调用");
+
+        // 释放后台任务，避免泄漏
+        releaseAnalyze.countDown();
     }
 
     // 辅助：轮询等待 batch 最新的 run 变为非 RUNNING 终态
