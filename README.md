@@ -85,12 +85,6 @@ MinIO bucket：        参考图 / 原始生成图 / 打分图 / 素材包成品
 - 代码注释：养成良好的中文注释习惯。
 - Lombok 使用：项目中已引入 Lombok，POJO/实体/配置类等统一使用 Lombok 注解（`@Data`、`@Getter`/`@Setter`、`@Builder` 等），禁止手写样板 getter/setter。
 - 数据库约束：涉及表结构改动必须提供 SQL 脚本，不得通过 bash 直接向数据库插入数据，SQL 脚本交由用户手动执行。
-- 变更流程：重大改动走 OpenSpec 提案（`openspec/`），提案内容尽量使用中文。
-- 设计流程：`superpowers:brainstorming` 技能只做设计、不写文档。
-
-## 项目管理
-
-- 变更提案走 [OpenSpec](./openspec/) 流程管理（`openspec/changes`、`openspec/specs`）。
 
 ## 项目状态
 

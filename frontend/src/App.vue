@@ -10,6 +10,7 @@
         </h1>
         <el-menu mode="horizontal" :router="true" :default-active="$route.path" class="nav-menu">
           <el-menu-item index="/batches">批次管理</el-menu-item>
+          <el-menu-item index="/prompts">提示词库</el-menu-item>
         </el-menu>
       </div>
     </el-header>

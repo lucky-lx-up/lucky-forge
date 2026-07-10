@@ -64,6 +64,43 @@ export const listPackagesByBatch = (batchId) =>
 export const getPackageDetail = (id) =>
   api.get(`/packages/${id}`)
 
+// ===== 提示词库 =====
+export const listPromptLibrary = (params) =>
+  api.get('/prompt-library', { params })
+
+export const getPromptLibraryItem = (id) =>
+  api.get(`/prompt-library/${id}`)
+
+export const listPromptLibraryStyles = () =>
+  api.get('/prompt-library/styles')
+
+export const createPromptLibraryItem = (data) =>
+  api.post('/prompt-library', data)
+
+export const updatePromptLibraryItem = (id, data) =>
+  api.put(`/prompt-library/${id}`, data)
+
+export const deletePromptLibraryItem = (id) =>
+  api.delete(`/prompt-library/${id}`)
+
+export const generateFromLibrary = (data) =>
+  api.post('/prompt-library/generate', data)
+
+export const archiveFromRun = (data) =>
+  api.post('/prompt-library/archive', data)
+
+export const getLibraryRunDetail = (runId) =>
+  api.get(`/prompt-library/runs/${runId}`)
+
+export const listLibraryRuns = (params) =>
+  api.get('/prompt-library/runs', { params })
+
+export const deleteLibraryRun = (runId) =>
+  api.delete(`/prompt-library/runs/${runId}`)
+
+export const deleteLibraryRuns = (runIds) =>
+  api.delete('/prompt-library/runs', { data: runIds })
+
 // ===== 图片预览 =====
 export const getPreviewUrl = (objectKey) =>
   api.get('/images/preview-url', { params: { objectKey } })

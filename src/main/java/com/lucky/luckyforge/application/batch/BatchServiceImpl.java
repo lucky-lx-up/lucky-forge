@@ -28,6 +28,14 @@ import java.util.List;
 @Service
 public class BatchServiceImpl implements BatchService {
 
+    /**
+     * 提示词库出图自动创建的占位批次 theme 标识。
+     * <p>这类批次是为复用 ImageGenerator/ImageScorer（它们强依赖 batch）而创建的，
+     * 并非用户真正发起的生产批次，不应出现在批次列表中污染界面。
+     * 与 {@code PromptLibraryServiceImpl.PLACEHOLDER_BATCH_THEME} 保持一致。
+     */
+    public static final String PLACEHOLDER_BATCH_THEME = "提示词库直接出图";
+
     @Autowired private BatchMapper batchMapper;
     @Autowired private RunMapper runMapper;
     @Autowired private ReferenceImageMapper referenceImageMapper;
@@ -49,9 +57,11 @@ public class BatchServiceImpl implements BatchService {
     @Override
     public IPage<BatchSummary> listBatches(int page, int size) {
         Page<Batch> pageParam = new Page<>(Math.max(1, page), Math.max(1, Math.min(size, 100)));
-        // 按 id 倒序（最新在前）
+        // 按 id 倒序（最新在前）；排除提示词库出图自动创建的占位批次（避免污染批次列表）
         Page<Batch> result = batchMapper.selectPage(pageParam,
-                new LambdaQueryWrapper<Batch>().orderByDesc(Batch::getId));
+                new LambdaQueryWrapper<Batch>()
+                        .ne(Batch::getTheme, PLACEHOLDER_BATCH_THEME)
+                        .orderByDesc(Batch::getId));
         return result.convert(this::toSummary);
     }
 
