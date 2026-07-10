@@ -86,29 +86,30 @@ class PackageAssemblerServiceIT {
     }
 
     @Test
-    void 覆盖式打包_二次覆盖旧数据() {
+    void 累积式打包_二次追加历史保留() {
         Long[] ids = setupRunWithScores(new int[]{90}, 1);
         Long runId = ids[1];
 
+        // 第一次打包
         when(chatGpt2ApiClient.chatCompletion(anyString(), anyList()))
                 .thenReturn("{\"title\":\"旧标题\",\"tags\":[\"旧\"]}");
         packageAssemblerService.assemble(runId);
 
-        // 旧 package 数量
-        long oldCount = packageMapper.selectCount(null);
-
-        // 第二次打包
+        // 第二次打包（同一 run，模拟重跑）
         reset(chatGpt2ApiClient);
         when(chatGpt2ApiClient.chatCompletion(anyString(), anyList()))
                 .thenReturn("{\"title\":\"新标题\",\"tags\":[\"新\"]}");
         PackageAssemblyResponse resp2 = packageAssemblerService.assemble(runId);
 
         assertEquals("新标题", resp2.title());
-        // 未删除的 package 仍 1 条（旧的逻辑删除了）
+        // 累积式：未删除的 package 应有 2 条（旧的保留 + 新的追加）
         List<Package> active = packageMapper.selectList(new LambdaQueryWrapper<Package>()
-                .eq(Package::getBatchId, ids[0]));
-        assertEquals(1, active.size());
+                .eq(Package::getBatchId, ids[0])
+                .orderByDesc(Package::getId));
+        assertEquals(2, active.size(), "累积式应保留历史 package");
+        // 最新的是新标题，其次是旧标题（按 id 倒序）
         assertEquals("新标题", active.get(0).getTitle());
+        assertEquals("旧标题", active.get(1).getTitle());
     }
 
     @Test
