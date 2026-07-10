@@ -1,6 +1,7 @@
 package com.lucky.luckyforge.api.controller;
 
 import com.lucky.luckyforge.application.pipeline.PipelineOrchestratorService;
+import com.lucky.luckyforge.application.pipeline.dto.PipelineExecuteRequest;
 import com.lucky.luckyforge.application.pipeline.dto.PipelineResult;
 import com.lucky.luckyforge.application.pipeline.dto.PipelineStatusResponse;
 import com.lucky.luckyforge.common.response.ApiResponse;
@@ -11,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -37,8 +39,10 @@ public class PipelineOrchestratorController {
      * @return batchId（用于轮询 GET /{batchId}/pipeline/status）
      */
     @PostMapping("/{batchId}/pipeline")
-    public ResponseEntity<ApiResponse<Long>> execute(@PathVariable Long batchId) {
-        Long trackId = pipelineOrchestratorService.executeAsync(batchId);
+    public ResponseEntity<ApiResponse<Long>> execute(@PathVariable Long batchId,
+                                                     @RequestBody(required = false) PipelineExecuteRequest request) {
+        Integer count = request != null ? request.count() : null;
+        Long trackId = pipelineOrchestratorService.executeAsync(batchId, count);
         return ResponseEntity.ok(ApiResponse.success("流水线已启动，轮询 GET /" + batchId + "/pipeline/status 查进度", trackId));
     }
 
