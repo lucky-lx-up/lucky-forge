@@ -30,7 +30,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executors;
 
 /**
  * 流水线编排服务实现。
@@ -213,37 +212,35 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
         preRun.setStartedAt(LocalDateTime.now());
         runMapper.insert(preRun);
 
-        // 虚拟线程后台执行（进度通过 lf_run 表的 currentStep/status 追踪，重启不丢）
+        // 虚拟线程后台执行（fire-and-forget：提交后立即返回，进度通过 lf_run 表追踪，重启不丢）
         final Long preRunId = preRun.getId();
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            executor.submit(() -> {
-                boolean success = false;
-                String failureMsg = null;
-                try {
-                    PipelineResult result = execute(batchId);
-                    success = result.overallSuccess();
-                    if (!success) {
-                        failureMsg = result.overallMessage();
-                    }
-                } catch (Exception e) {
-                    failureMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-                    log.error("异步 pipeline 执行异常 batchId={}", batchId, e);
-                } finally {
-                    // 按 execute 真实结果标记预创建 run 终态（避免孤儿 RUNNING）
-                    Run pre = runMapper.selectById(preRunId);
-                    if (pre != null && "RUNNING".equals(pre.getStatus())) {
-                        if (success) {
-                            pre.setStatus("SUCCESS");
-                        } else {
-                            pre.setStatus("FAILED");
-                            pre.setError(failureMsg != null ? failureMsg : "流水线执行失败");
-                        }
-                        pre.setFinishedAt(LocalDateTime.now());
-                        runMapper.updateById(pre);
-                    }
+        Thread.startVirtualThread(() -> {
+            boolean success = false;
+            String failureMsg = null;
+            try {
+                PipelineResult result = execute(batchId);
+                success = result.overallSuccess();
+                if (!success) {
+                    failureMsg = result.overallMessage();
                 }
-            });
-        }
+            } catch (Exception e) {
+                failureMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                log.error("异步 pipeline 执行异常 batchId={}", batchId, e);
+            } finally {
+                // 按 execute 真实结果标记预创建 run 终态（避免孤儿 RUNNING）
+                Run pre = runMapper.selectById(preRunId);
+                if (pre != null && "RUNNING".equals(pre.getStatus())) {
+                    if (success) {
+                        pre.setStatus("SUCCESS");
+                    } else {
+                        pre.setStatus("FAILED");
+                        pre.setError(failureMsg != null ? failureMsg : "流水线执行失败");
+                    }
+                    pre.setFinishedAt(LocalDateTime.now());
+                    runMapper.updateById(pre);
+                }
+            }
+        });
 
         return batchId;
     }
