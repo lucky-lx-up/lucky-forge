@@ -305,6 +305,36 @@ class PipelineOrchestratorServiceIT {
         releaseAnalyze.countDown();
     }
 
+    @Test
+    @Transactional(propagation = Propagation.NEVER)
+    void executeAsync带count_应按count生成对应数量() throws Exception {
+        Long batchId = setupBatchWithReferenceOnly();
+
+        // mock STYLE + PROMPT（count=1 → 1 条 prompt）
+        long runId = 888L;
+        when(styleAnalysisService.analyze(batchId)).thenReturn(
+                new StyleAnalysisResponse(10L, "测试风格", "描述", "{}", batchId));
+        when(promptBuilderService.generatePrompts(eq(batchId), argThat(r -> r != null && r.count() == 1)))
+                .thenReturn(List.of(new PromptGenerationResponse(1L, runId, 1, "p")));
+        when(imageGeneratorService.generateImages(runId)).thenReturn(
+                new ImageGenerationSummary(runId, 1, 1, 0, List.of()));
+        when(imageScorerService.scoreImages(runId)).thenReturn(
+                new ScoreSummary(runId, 1, 1, 0, 1, List.of()));
+        when(packageAssemblerService.assemble(eq(runId), eq(1))).thenReturn(
+                new PackageAssemblyResponse(5L, runId, batchId, "标题", List.of("标签"),
+                        List.of(new PackageImageItem(1L, "test/1.png", 0, new BigDecimal("95")))));
+
+        pipelineOrchestratorService.executeAsync(batchId, 1);
+
+        Run run = waitForRunTerminalStatus(batchId, 10);
+        assertNotNull(run);
+        assertEquals("SUCCESS", run.getStatus());
+        // 验证 PromptBuilder 收到 count=1 的 request
+        verify(promptBuilderService).generatePrompts(eq(batchId), argThat(r -> r != null && r.count() == 1));
+        // 验证 PackageAssembler 收到 count=1
+        verify(packageAssemblerService).assemble(eq(runId), eq(1));
+    }
+
     // 辅助：轮询等待 batch 最新的 run 变为非 RUNNING 终态
     private Run waitForRunTerminalStatus(Long batchId, int timeoutSeconds) throws Exception {
         long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;

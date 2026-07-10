@@ -11,6 +11,7 @@ import com.lucky.luckyforge.application.pipeline.dto.PipelineResult;
 import com.lucky.luckyforge.application.pipeline.dto.PipelineStepResult;
 import com.lucky.luckyforge.application.pipeline.dto.PipelineStatusResponse;
 import com.lucky.luckyforge.application.promptbuilder.PromptBuilderService;
+import com.lucky.luckyforge.application.promptbuilder.dto.PromptGenerationRequest;
 import com.lucky.luckyforge.application.promptbuilder.dto.PromptGenerationResponse;
 import com.lucky.luckyforge.application.styleanalysis.StyleAnalysisService;
 import com.lucky.luckyforge.application.styleanalysis.dto.StyleAnalysisResponse;
@@ -59,6 +60,10 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
 
     @Override
     public PipelineResult execute(Long batchId) {
+        return execute(batchId, null);
+    }
+
+    private PipelineResult execute(Long batchId, Integer count) {
         // 1. 校验 batch 存在
         if (batchId == null || batchId <= 0) {
             throw new BizException("batchId 非法");
@@ -87,7 +92,7 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
 
             // 步骤②：提示词生成（关键步）
             List<PromptGenerationResponse> prompts = executeStep("PROMPT", steps, () ->
-                    promptBuilderService.generatePrompts(batchId, null));
+                    promptBuilderService.generatePrompts(batchId, count != null ? new PromptGenerationRequest(count) : null));
             if (prompts == null || prompts.isEmpty()) {
                 throw new BizException("提示词生成结果为空");
             }
@@ -110,7 +115,9 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
 
             // 步骤⑤：打包（关键步）
             PackageAssemblyResponse pkg = executeStep("PACKAGE", steps, () ->
-                    packageAssemblerService.assemble(runIdFinal));
+                    count != null
+                            ? packageAssemblerService.assemble(runIdFinal, count)
+                            : packageAssemblerService.assemble(runIdFinal));
             packageId = pkg.packageId();
 
             // 全流程成功 → run.status=SUCCESS
@@ -173,6 +180,11 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
 
     @Override
     public Long executeAsync(Long batchId) {
+        return executeAsync(batchId, null);
+    }
+
+    @Override
+    public Long executeAsync(Long batchId, Integer count) {
         // 校验（与 execute 同步前置检查）
         if (batchId == null || batchId <= 0) {
             throw new BizException("batchId 非法");
@@ -218,7 +230,7 @@ public class PipelineOrchestratorServiceImpl implements PipelineOrchestratorServ
             boolean success = false;
             String failureMsg = null;
             try {
-                PipelineResult result = execute(batchId);
+                PipelineResult result = execute(batchId, count);
                 success = result.overallSuccess();
                 if (!success) {
                     failureMsg = result.overallMessage();

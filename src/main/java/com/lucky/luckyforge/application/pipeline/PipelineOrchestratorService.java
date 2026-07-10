@@ -27,6 +27,15 @@ public interface PipelineOrchestratorService {
     Long executeAsync(Long batchId);
 
     /**
+     * 异步执行全流程（指定生成张数）。
+     *
+     * @param batchId 批次 id（必须已含参考图）
+     * @param count   生成张数（可空：空则用 batch.targetCount）
+     * @return 后台执行用的 runId（用于轮询）
+     */
+    Long executeAsync(Long batchId, Integer count);
+
+    /**
      * 查询异步流水线的执行状态（步骤进度 + 最终结果）。
      *
      * @param runId executeAsync 返回的 runId

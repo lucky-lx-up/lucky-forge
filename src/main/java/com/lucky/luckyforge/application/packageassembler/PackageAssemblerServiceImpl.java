@@ -75,6 +75,12 @@ public class PackageAssemblerServiceImpl implements PackageAssemblerService {
     @Override
     @Transactional
     public PackageAssemblyResponse assemble(Long runId) {
+        return assemble(runId, null);
+    }
+
+    @Override
+    @Transactional
+    public PackageAssemblyResponse assemble(Long runId, Integer count) {
         // 1. 校验 run
         if (runId == null || runId <= 0) {
             throw new BizException("runId 非法");
@@ -96,8 +102,10 @@ public class PackageAssemblerServiceImpl implements PackageAssemblerService {
 
         // 3. 查 batch 决定 TopN + vertical
         Batch batch = batchMapper.selectById(run.getBatchId());
-        int topN = (batch != null && batch.getTargetCount() != null && batch.getTargetCount() > 0)
-                ? batch.getTargetCount() : scores.size();
+        int topN = (count != null && count > 0)
+                ? count
+                : (batch != null && batch.getTargetCount() != null && batch.getTargetCount() > 0
+                        ? batch.getTargetCount() : scores.size());
         // 取 Top N（不足则用全部）
         List<Score> topScores = scores.subList(0, Math.min(topN, scores.size()));
 
