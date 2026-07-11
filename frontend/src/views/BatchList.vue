@@ -132,15 +132,27 @@ const page = ref(1)
 const total = ref(0)
 const selectedIds = ref(new Set())
 
+const currentPageIds = computed(() => batches.value.map(b => b.id))
+
 const isAllSelected = computed(() =>
-  batches.value.length > 0 && selectedIds.value.size === batches.value.length
+  currentPageIds.value.length > 0 &&
+  currentPageIds.value.every(id => selectedIds.value.has(id))
 )
-const isIndeterminate = computed(() =>
-  selectedIds.value.size > 0 && selectedIds.value.size < batches.value.length
-)
+const isIndeterminate = computed(() => {
+  const selectedOnPage = currentPageIds.value.filter(id => selectedIds.value.has(id))
+  return selectedOnPage.length > 0 && selectedOnPage.length < currentPageIds.value.length
+})
 
 const toggleSelectAll = (checked) => {
-  selectedIds.value = checked ? new Set(batches.value.map(b => b.id)) : new Set()
+  const next = new Set(selectedIds.value)
+  for (const id of currentPageIds.value) {
+    if (checked) {
+      next.add(id)
+    } else {
+      next.delete(id)
+    }
+  }
+  selectedIds.value = next
 }
 
 const showCreate = ref(false)
