@@ -88,6 +88,19 @@
           </div>
           <!-- 评语 -->
           <div v-if="img.remark" class="remark">{{ img.remark }}</div>
+          <!-- 提示词 + 归档 -->
+          <div v-if="img.promptContent" class="prompt-section">
+            <div class="prompt-text">{{ img.promptContent }}</div>
+            <el-button
+              size="small"
+              :type="archivedImageIds.has(img.generatedImageId) ? 'success' : 'primary'"
+              plain
+              :disabled="archivedImageIds.has(img.generatedImageId) || archiving"
+              @click="handleArchive(img)"
+            >
+              {{ archivedImageIds.has(img.generatedImageId) ? '✓ 已加入' : '加入提示词库' }}
+            </el-button>
+          </div>
         </div>
       </div>
     </div>
@@ -108,7 +121,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Picture } from '@element-plus/icons-vue'
-import { getPackageDetail } from '../api'
+import { getPackageDetail, archivePrompts } from '../api'
 
 const route = useRoute()
 const packageId = route.params.id
@@ -126,6 +139,24 @@ const viewerIndex = ref(0)
 const openViewer = (index) => {
   viewerIndex.value = Math.max(0, Math.min(index, allPreviewUrls.value.length - 1))
   viewerVisible.value = true
+}
+
+// 提示词归档状态
+const archivedImageIds = ref(new Set())
+const archiving = ref(false)
+
+const handleArchive = async (img) => {
+  if (!img.promptId || archivedImageIds.value.has(img.generatedImageId)) return
+  archiving.value = true
+  try {
+    await archivePrompts([img.promptId])
+    archivedImageIds.value.add(img.generatedImageId)
+    ElMessage.success('已加入提示词库')
+  } catch (e) {
+    ElMessage.error(e.message)
+  } finally {
+    archiving.value = false
+  }
 }
 
 const scoreClass = (score) => {
@@ -369,6 +400,23 @@ onMounted(load)
   font-size: 11px;
   color: #606266;
   line-height: 1.5;
+}
+
+/* 提示词 + 归档 */
+.prompt-section {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prompt-text {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.5;
+  background: #f9fafb;
+  padding: 6px 8px;
+  border-radius: 4px;
 }
 
 /* 响应式 */

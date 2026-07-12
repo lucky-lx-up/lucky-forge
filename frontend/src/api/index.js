@@ -89,6 +89,9 @@ export const generateFromLibrary = (data) =>
 export const archiveFromRun = (data) =>
   api.post('/prompt-library/archive', data)
 
+export const archivePrompts = (promptIds) =>
+  api.post('/prompt-library/archive-prompts', { promptIds })
+
 export const getLibraryRunDetail = (runId) =>
   api.get(`/prompt-library/runs/${runId}`)
 
