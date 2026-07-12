@@ -11,6 +11,7 @@ import com.lucky.luckyforge.application.imagescorer.dto.DimensionScore;
 import com.lucky.luckyforge.infrastructure.persistence.entity.GeneratedImage;
 import com.lucky.luckyforge.infrastructure.persistence.entity.Package;
 import com.lucky.luckyforge.infrastructure.persistence.entity.PackageImage;
+import com.lucky.luckyforge.infrastructure.persistence.entity.Prompt;
 import com.lucky.luckyforge.infrastructure.persistence.entity.Score;
 import com.lucky.luckyforge.infrastructure.persistence.entity.ScoreDimension;
 import com.lucky.luckyforge.infrastructure.persistence.mapper.*;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -40,6 +42,7 @@ public class PackageQueryServiceImpl implements PackageQueryService {
     @Autowired private GeneratedImageMapper generatedImageMapper;
     @Autowired private ScoreMapper scoreMapper;
     @Autowired private ScoreDimensionMapper scoreDimensionMapper;
+    @Autowired private PromptMapper promptMapper;
     @Autowired private MinioStorageService storageService;
     @Autowired private ObjectMapper objectMapper;
 
@@ -70,6 +73,17 @@ public class PackageQueryServiceImpl implements PackageQueryService {
                         .in(Score::getGeneratedImageId, imageIds)).stream()
                 .collect(Collectors.toMap(Score::getGeneratedImageId, s -> s));
 
+        // 查每张图对应的提示词（通过 generated_image.promptId 关联）
+        List<Long> promptIds = imageMap.values().stream()
+                .map(GeneratedImage::getPromptId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, Prompt> promptMap = promptIds.isEmpty() ? Map.of()
+                : promptMapper.selectList(new LambdaQueryWrapper<Prompt>()
+                        .in(Prompt::getId, promptIds)).stream()
+                .collect(Collectors.toMap(Prompt::getId, p -> p));
+
         // 组装图片详情（含预签名 URL + 维度分明细）
         // 先批量查所有相关 score 的维度分
         List<Long> scoreIds = scoreMap.values().stream().map(Score::getId).toList();
@@ -96,8 +110,12 @@ public class PackageQueryServiceImpl implements PackageQueryService {
                         .map(d -> new DimensionScore(d.getName(), d.getValue()))
                         .toList();
             }
+            Prompt prompt = gi != null && gi.getPromptId() != null
+                    ? promptMap.get(gi.getPromptId()) : null;
             images.add(new PackageImageDetail(pi.getGeneratedImageId(), objectKey,
-                    pi.getSortOrder(), previewUrl, total, remark, dimensions));
+                    pi.getSortOrder(), previewUrl, total, remark, dimensions,
+                    prompt != null ? prompt.getId() : null,
+                    prompt != null ? prompt.getContent() : null));
         }
 
         return new PackageDetail(pkg.getId(), pkg.getBatchId(), pkg.getTitle(),
