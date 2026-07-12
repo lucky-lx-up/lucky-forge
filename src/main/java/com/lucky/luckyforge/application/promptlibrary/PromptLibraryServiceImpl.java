@@ -199,7 +199,11 @@ public class PromptLibraryServiceImpl implements PromptLibraryService {
                 continue;
             }
             Batch batch = batchMapper.selectById(run.getBatchId());
-            if (batch == null || batch.getStyleId() == null) {
+            if (batch == null) {
+                log.warn("归档跳过：promptId={} 的批次不存在或已删除", promptId);
+                continue;
+            }
+            if (batch.getStyleId() == null) {
                 log.warn("归档跳过：promptId={} 的批次无风格", promptId);
                 continue;
             }
