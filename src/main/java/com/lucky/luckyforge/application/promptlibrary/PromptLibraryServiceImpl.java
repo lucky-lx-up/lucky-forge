@@ -181,6 +181,57 @@ public class PromptLibraryServiceImpl implements PromptLibraryService {
                 .toList();
     }
 
+    @Override
+    @Transactional
+    public List<PromptLibraryItemResponse> archivePrompts(List<Long> promptIds) {
+        List<PromptLibraryItem> archived = new ArrayList<>(promptIds.size());
+        for (Long promptId : promptIds) {
+            // 1. 查 prompt
+            Prompt prompt = promptMapper.selectById(promptId);
+            if (prompt == null) {
+                log.warn("归档跳过：promptId={} 不存在", promptId);
+                continue;
+            }
+            // 2. 查 run → batch → style
+            Run run = runMapper.selectById(prompt.getRunId());
+            if (run == null) {
+                log.warn("归档跳过：promptId={} 的 run 不存在", promptId);
+                continue;
+            }
+            Batch batch = batchMapper.selectById(run.getBatchId());
+            if (batch == null || batch.getStyleId() == null) {
+                log.warn("归档跳过：promptId={} 的批次无风格", promptId);
+                continue;
+            }
+            Style style = styleMapper.selectById(batch.getStyleId());
+            if (style == null) {
+                log.warn("归档跳过：promptId={} 的风格记录不存在", promptId);
+                continue;
+            }
+            // 3. 归档
+            PromptLibraryItem lib = new PromptLibraryItem();
+            lib.setStyleId(style.getId());
+            lib.setContent(prompt.getContent());
+            lib.setVertical(style.getVertical());
+            lib.setSourcePromptId(promptId);
+            lib.setUsageCount(0);
+            promptLibraryItemMapper.insert(lib);
+            archived.add(lib);
+        }
+        if (archived.isEmpty()) {
+            throw new BizException("没有可归档的提示词（均不存在或无风格）");
+        }
+        // 批量查风格名（archived 可能含不同 styleId）
+        Map<Long, String> styleNameMap = archived.stream()
+                .map(PromptLibraryItem::getStyleId).distinct()
+                .map(styleMapper::selectById)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toMap(Style::getId, Style::getName));
+        return archived.stream()
+                .map(it -> toItemResponse(it, styleNameMap.get(it.getStyleId())))
+                .toList();
+    }
+
     // ==================== 出图（从库直接出图） ====================
 
     @Override

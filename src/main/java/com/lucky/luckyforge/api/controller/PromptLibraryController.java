@@ -141,6 +141,18 @@ public class PromptLibraryController {
         }
     }
 
+    /** 按 promptId 直接归档提示词到库（不需 runId） */
+    @PostMapping("/archive-prompts")
+    public ResponseEntity<ApiResponse<List<PromptLibraryItemResponse>>> archivePrompts(
+            @RequestBody ArchivePromptsRequest request) {
+        try {
+            List<PromptLibraryItemResponse> result = promptLibraryService.archivePrompts(request.promptIds());
+            return ResponseEntity.ok(ApiResponse.success(result));
+        } catch (RuntimeException e) {
+            throw e;
+        }
+    }
+
     /**
      * 列出提示词库出图的历史记录（前端「出图历史」标签页用）。
      *

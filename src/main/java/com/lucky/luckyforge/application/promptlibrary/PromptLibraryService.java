@@ -67,6 +67,15 @@ public interface PromptLibraryService {
     List<PromptLibraryItemResponse> archiveFromRun(ArchiveFromRunRequest request);
 
     /**
+     * 按 promptId 直接归档提示词到库（自动追溯 run→batch→style 继承风格信息）。
+     * <p>适用于素材包详情页等不知道 runId 的场景。
+     *
+     * @param promptIds 来源提示词 id 列表
+     * @return 归档结果
+     */
+    List<PromptLibraryItemResponse> archivePrompts(List<Long> promptIds);
+
+    /**
      * 从库中选择若干提示词触发出图（异步执行，立即返回 runId）。
      * <p>内部创建占位 batch + run，复用 {@code ImageGeneratorService} + {@code ImageScorerService}。
      *
